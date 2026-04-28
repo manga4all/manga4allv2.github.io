@@ -6,62 +6,13 @@
   <title>Lector | Manga 4 All</title>
   <link rel="stylesheet" href="css/style.css?v=18">
   <style>
-    /* Estilos específicos para que el lector sea cómodo */
-    .reader-nav {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 15px;
-      padding: 20px;
-      background: #111;
-      position: sticky;
-      top: 70px;
-      z-index: 1000;
-    }
-    .btn-nav {
-      background: #ff0055;
-      color: white;
-      padding: 10px 20px;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: bold;
-      font-size: 0.9rem;
-      transition: 0.3s;
-    }
-    .btn-nav.disabled {
-      background: #333;
-      color: #777;
-      pointer-events: none;
-      opacity: 0.6;
-    }
-    #chapterLabel {
-      font-weight: bold;
-      color: white;
-      min-width: 120px;
-      text-align: center;
-    }
-    .manga-pages-container {
-      max-width: 900px;
-      margin: 20px auto;
-      display: flex;
-      flex-direction: column;
-      gap: 0; /* Sin espacios entre páginas */
-    }
-    .manga-pages-container img {
-      width: 100%;
-      height: auto;
-      display: block;
-    }
-    .list-btn {
-      background: #333;
-      color: white;
-      padding: 10px 15px;
-      border-radius: 8px;
-      text-decoration: none;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .reader-nav { display: flex; justify-content: center; align-items: center; gap: 15px; padding: 20px; background: #111; position: sticky; top: 70px; z-index: 1000; }
+    .btn-nav { background: #ff0055; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; transition: 0.3s; }
+    .btn-nav.disabled { background: #333; color: #777; pointer-events: none; opacity: 0.6; }
+    #chapterLabelTop, #chapterLabelBottom { font-weight: bold; color: white; text-align: center; min-width: 130px; }
+    .manga-pages-container { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; }
+    .manga-pages-container img { width: 100%; height: auto; display: block; background: #111; min-height: 200px; }
+    .list-btn { background: #333; color: white; padding: 10px 15px; border-radius: 8px; text-decoration: none; display: flex; align-items: center; gap: 8px; }
   </style>
 </head>
 <body>
@@ -74,9 +25,6 @@
             <a href="directory.html">Directorio</a>
         </div>
     </div>
-    <div class="search-container">
-        <input type="text" placeholder="Buscar manga...">
-    </div>
   </nav>
 
   <div class="reader-nav">
@@ -86,8 +34,7 @@
     <a href="#" id="nextBtnTop" class="btn-nav">→</a>
   </div>
 
-  <div class="manga-pages-container" id="mangaPages">
-    </div>
+  <div class="manga-pages-container" id="mangaPages"></div>
 
   <div class="reader-nav" style="margin-bottom: 50px;">
     <a href="#" id="listBtnBottom" class="list-btn">☰ Lista</a>
@@ -102,88 +49,71 @@
 
   <script type="module">
     import { db } from "./js/firebase.js";
-    import { 
-      doc, getDoc, collection, query, where, getDocs 
-    } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+    import { collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
 
     const params = new URLSearchParams(window.location.search);
     const mangaId = params.get("manga");
     const currentNumber = params.get("number");
 
-    // Elementos de la interfaz
-    const mangaPages = document.getElementById("mangaPages");
-    
     async function loadReader() {
       if (!mangaId || !currentNumber) return;
 
-      // Actualizar los textos de "Cargando..." al número actual
-      document.getElementById("chapterLabelTop").textContent = `Capítulo ${currentNumber}`;
-      document.getElementById("chapterLabelBottom").textContent = `Capítulo ${currentNumber}`;
-      
-      // Configurar botones de volver a la lista (manga.html)
+      // 1. Configurar botones de volver
       const listUrl = `manga.html?id=${mangaId}`;
       document.getElementById("listBtnTop").href = listUrl;
       document.getElementById("listBtnBottom").href = listUrl;
+      document.getElementById("chapterLabelTop").textContent = `Capítulo ${currentNumber}`;
+      document.getElementById("chapterLabelBottom").textContent = `Capítulo ${currentNumber}`;
 
       try {
-        // 1. CARGAR IMÁGENES DEL CAPÍTULO
-        const qCap = query(
-          collection(db, "tomos"),
-          where("mangaId", "==", mangaId),
-          where("number", "==", currentNumber)
-        );
-
-        const querySnapshot = await getDocs(qCap);
-        if (!querySnapshot.empty) {
-          const tomoData = querySnapshot.docs[0].data();
-          mangaPages.innerHTML = "";
-          tomoData.images.forEach((url) => {
-            const img = document.createElement("img");
-            img.src = url;
-            img.alt = "Página";
-            img.loading = "lazy"; // Mejora la carga
-            mangaPages.appendChild(img);
-          });
-        }
-
-        // 2. LÓGICA DE NAVEGACIÓN (SIGUIENTE / ANTERIOR)
-        const qAll = query(collection(db, "tomos"), where("mangaId", "==", mangaId));
-        const allCapsSnap = await getDocs(qAll);
+        // 2. Traer TODOS los capítulos de este manga (Es más seguro)
+        const q = query(collection(db, "tomos"), where("mangaId", "==", mangaId));
+        const snap = await getDocs(q);
         
         let allChapters = [];
-        allCapsSnap.forEach(d => allChapters.push(d.data()));
-        
-        // Ordenar numéricamente para no perder el orden
+        snap.forEach(doc => allChapters.push(doc.data()));
+
+        // Ordenar numéricamente
         allChapters.sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
 
-        const currentIndex = allChapters.findIndex(c => c.number === currentNumber);
+        // 3. Buscar el capítulo actual en la lista
+        const tomoActual = allChapters.find(c => String(c.number) === String(currentNumber));
 
-        // Configurar Botón Anterior
-        setupNavButton("prevBtnTop", "prevBtnBottom", currentIndex > 0 ? allChapters[currentIndex - 1].number : null);
+        if (tomoActual && tomoActual.images) {
+          const container = document.getElementById("mangaPages");
+          container.innerHTML = "";
+          tomoActual.images.forEach(url => {
+            const img = document.createElement("img");
+            img.src = url;
+            container.appendChild(img);
+          });
+        } else {
+          document.getElementById("mangaPages").innerHTML = "<p style='text-align:center; padding:50px;'>No se encontraron imágenes para este capítulo.</p>";
+        }
 
-        // Configurar Botón Siguiente
-        setupNavButton("nextBtnTop", "nextBtnBottom", currentIndex < allChapters.length - 1 ? allChapters[currentIndex + 1].number : null);
+        // 4. Configurar navegación
+        const currentIndex = allChapters.findIndex(c => String(c.number) === String(currentNumber));
 
-      } catch (error) {
-        console.error("Error en el lector:", error);
+        // Anterior
+        setupBtn("prevBtnTop", "prevBtnBottom", currentIndex > 0 ? allChapters[currentIndex - 1].number : null);
+        // Siguiente
+        setupBtn("nextBtnTop", "nextBtnBottom", currentIndex < allChapters.length - 1 ? allChapters[currentIndex + 1].number : null);
+
+      } catch (e) {
+        console.error("Error:", e);
       }
     }
 
-    function setupNavButton(idTop, idBottom, targetNumber) {
-      const btnTop = document.getElementById(idTop);
-      const btnBottom = document.getElementById(idBottom);
-
-      if (targetNumber) {
-        const url = `reader.html?manga=${mangaId}&number=${targetNumber}`;
-        btnTop.href = url;
-        btnBottom.href = url;
-        btnTop.classList.remove("disabled");
-        btnBottom.classList.remove("disabled");
+    function setupBtn(idT, idB, target) {
+      const bT = document.getElementById(idT);
+      const bB = document.getElementById(idB);
+      if (target !== null) {
+        const url = `reader.html?manga=${mangaId}&number=${target}`;
+        bT.href = url; bB.href = url;
+        bT.classList.remove("disabled"); bB.classList.remove("disabled");
       } else {
-        btnTop.classList.add("disabled");
-        btnBottom.classList.add("disabled");
-        btnTop.removeAttribute("href");
-        btnBottom.removeAttribute("href");
+        bT.classList.add("disabled"); bB.classList.add("disabled");
+        if(idT.includes("next")) bT.textContent = bB.textContent = "FIN";
       }
     }
 
