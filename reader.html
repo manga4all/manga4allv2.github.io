@@ -8,11 +8,12 @@
   <style>
     .reader-nav { display: flex; justify-content: center; align-items: center; gap: 15px; padding: 20px; background: #111; position: sticky; top: 70px; z-index: 1000; }
     .btn-nav { background: #ff0055; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; transition: 0.3s; }
-    .btn-nav.disabled { background: #333; color: #777; pointer-events: none; opacity: 0.6; }
-    #chapterLabelTop, #chapterLabelBottom { font-weight: bold; color: white; text-align: center; min-width: 130px; }
-    .manga-pages-container { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; }
-    .manga-pages-container img { width: 100%; height: auto; display: block; background: #111; min-height: 200px; }
+    .btn-nav.disabled { background: #333 !important; color: #777 !important; pointer-events: none !important; opacity: 0.6; cursor: default; }
+    #chapterLabelTop, #chapterLabelBottom { font-weight: bold; color: white; text-align: center; min-width: 140px; }
+    .manga-pages-container { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; min-height: 50vh; }
+    .manga-pages-container img { width: 100%; height: auto; display: block; background: #111; }
     .list-btn { background: #333; color: white; padding: 10px 15px; border-radius: 8px; text-decoration: none; display: flex; align-items: center; gap: 8px; }
+    .error-msg { text-align: center; padding: 50px; color: #ff0055; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -53,34 +54,39 @@
 
     const params = new URLSearchParams(window.location.search);
     const mangaId = params.get("manga");
-    const currentNumber = params.get("number");
+    const currentNumber = params.get("number") ? params.get("number").trim() : null;
 
     async function loadReader() {
       if (!mangaId || !currentNumber) return;
 
-      // 1. Configurar botones de volver
       const listUrl = `manga.html?id=${mangaId}`;
-      document.getElementById("listBtnTop").href = listUrl;
-      document.getElementById("listBtnBottom").href = listUrl;
+      document.querySelectorAll(".list-btn").forEach(b => b.href = listUrl);
       document.getElementById("chapterLabelTop").textContent = `Capítulo ${currentNumber}`;
       document.getElementById("chapterLabelBottom").textContent = `Capítulo ${currentNumber}`;
 
       try {
-        // 2. Traer TODOS los capítulos de este manga (Es más seguro)
+        // 1. Traer todos los capítulos del manga
         const q = query(collection(db, "tomos"), where("mangaId", "==", mangaId));
         const snap = await getDocs(q);
         
         let allChapters = [];
-        snap.forEach(doc => allChapters.push(doc.data()));
+        snap.forEach(doc => {
+            const data = doc.data();
+            // Normalizamos el número para evitar fallos de comparación
+            data.normNum = String(data.number).trim();
+            allChapters.push(data);
+        });
 
-        // Ordenar numéricamente
+        // 2. Ordenar matemáticamente
         allChapters.sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
 
-        // 3. Buscar el capítulo actual en la lista
-        const tomoActual = allChapters.find(c => String(c.number) === String(currentNumber));
+        // 3. Buscar el capítulo actual en la lista ordenada
+        const currentIndex = allChapters.findIndex(c => c.normNum === currentNumber);
+        const tomoActual = allChapters[currentIndex];
 
-        if (tomoActual && tomoActual.images) {
-          const container = document.getElementById("mangaPages");
+        const container = document.getElementById("mangaPages");
+        
+        if (tomoActual && tomoActual.images && tomoActual.images.length > 0) {
           container.innerHTML = "";
           tomoActual.images.forEach(url => {
             const img = document.createElement("img");
@@ -88,33 +94,48 @@
             container.appendChild(img);
           });
         } else {
-          document.getElementById("mangaPages").innerHTML = "<p style='text-align:center; padding:50px;'>No se encontraron imágenes para este capítulo.</p>";
+          container.innerHTML = `<p class="error-msg">No se encontraron imágenes para el capítulo ${currentNumber}.</p>`;
         }
 
-        // 4. Configurar navegación
-        const currentIndex = allChapters.findIndex(c => String(c.number) === String(currentNumber));
+        // 4. Configurar botones de navegación basándonos en el INDEX
+        // Botón Anterior
+        if (currentIndex > 0) {
+            updateNavButtons("prev", allChapters[currentIndex - 1].number);
+        } else {
+            disableButtons("prev");
+        }
 
-        // Anterior
-        setupBtn("prevBtnTop", "prevBtnBottom", currentIndex > 0 ? allChapters[currentIndex - 1].number : null);
-        // Siguiente
-        setupBtn("nextBtnTop", "nextBtnBottom", currentIndex < allChapters.length - 1 ? allChapters[currentIndex + 1].number : null);
+        // Botón Siguiente
+        if (currentIndex !== -1 && currentIndex < allChapters.length - 1) {
+            updateNavButtons("next", allChapters[currentIndex + 1].number);
+        } else {
+            disableButtons("next");
+        }
 
       } catch (e) {
-        console.error("Error:", e);
+        console.error("Error crítico:", e);
+        document.getElementById("mangaPages").innerHTML = `<p class="error-msg">Error de conexión con la base de datos.</p>`;
       }
     }
 
-    function setupBtn(idT, idB, target) {
-      const bT = document.getElementById(idT);
-      const bB = document.getElementById(idB);
-      if (target !== null) {
-        const url = `reader.html?manga=${mangaId}&number=${target}`;
-        bT.href = url; bB.href = url;
-        bT.classList.remove("disabled"); bB.classList.remove("disabled");
-      } else {
-        bT.classList.add("disabled"); bB.classList.add("disabled");
-        if(idT.includes("next")) bT.textContent = bB.textContent = "FIN";
-      }
+    function updateNavButtons(type, targetNum) {
+        const url = `reader.html?manga=${mangaId}&number=${targetNum}`;
+        document.getElementById(type + "BtnTop").href = url;
+        document.getElementById(type + "BtnBottom").href = url;
+        document.getElementById(type + "BtnTop").classList.remove("disabled");
+        document.getElementById(type + "BtnBottom").classList.remove("disabled");
+    }
+
+    function disableButtons(type) {
+        const bT = document.getElementById(type + "BtnTop");
+        const bB = document.getElementById(type + "BtnBottom");
+        bT.classList.add("disabled");
+        bB.classList.add("disabled");
+        bT.removeAttribute("href");
+        bB.removeAttribute("href");
+        if(type === "next") {
+            bT.textContent = bB.textContent = "FIN";
+        }
     }
 
     loadReader();
